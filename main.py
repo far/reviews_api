@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy import Column, Integer, Text, text
+from sqlalchemy import Column, Integer, Text, select
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, Query
 from pydantic import BaseModel
@@ -39,7 +39,7 @@ class Review(Base):
     id = Column(Integer, primary_key=True, index=True)
     text = Column(Text)
     sentiment = Column(Text)
-    created_at = Column(Text)
+    created_at = Column(Text, default=datetime.utcnow().isoformat())
 
 
 async def create_db_and_tables():
@@ -79,22 +79,13 @@ app = FastAPI(lifespan=lifespan)
 async def create_review(
     review: ReviewRequest, db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(
-        text(
-            "INSERT INTO reviews(text, sentiment, created_at) "
-            "VALUES(:text, :sentiment, :created_at) RETURNING *"
-        ),
-        {
-            "text": review.text,
-            "sentiment": get_sentiment(review.text),
-            "created_at": datetime.utcnow().isoformat(),
-        },
-    )
+    review_data = review.dict()
+    review_data |= {"sentiment": get_sentiment(review.text)}
+    new_review = Review(**review_data)
+    db.add(new_review)
     await db.commit()
-    row = result.fetchone()
-    return ReviewResponse(
-        id=row[0], text=row[1], sentiment=Sentiment(row[2]), created_at=row[3]
-    )
+    await db.refresh(new_review)
+    return new_review
 
 
 @app.get("/reviews/", response_model=List[ReviewResponse])
@@ -102,18 +93,6 @@ async def read_reviews(
     sentiment: Sentiment = Query(...), db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(
-        text(
-            "SELECT id, text, sentiment, created_at "
-            "FROM reviews WHERE sentiment = :sentiment"
-        ),
-        {"sentiment": sentiment},
+        select(Review).where(Review.sentiment == sentiment)
     )
-    return [
-        ReviewResponse(
-            id=row[0],
-            text=row[1],
-            sentiment=Sentiment(row[2]),
-            created_at=row[3],
-        )
-        for row in result.fetchall()
-    ]
+    return result.scalars().all()
