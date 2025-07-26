@@ -20,3 +20,5 @@ curl -H "Content-Type: application/json" -H "Accept: application/json"  -POST -d
 
 {"id":1,"text":"Хорошее приложение","sentiment":"positive","created_at":"2025-07-26T09:06:27.551916"}
 ```
+
+❗В ветке no-raw-sql есть вариант без RAW запросов 
